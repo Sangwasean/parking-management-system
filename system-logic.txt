@@ -1,0 +1,1 @@
+Ultrasonic sensor(announces approaching object)->Yolov8model(AI)(locates plate in image and gives coordinate) -> Opencv(crops and saves plate)-> Tesseract(OCR)->Validator(checks if plate number exists)->Voter->plates-log.csv
