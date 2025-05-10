@@ -11,8 +11,12 @@ TX_FILE = "data/transactions.csv"
 RATE_PER_HOUR = 200  # RWF per hour
 ser = None
 
+
 def listen_to_arduino(arduino_port, baud=9600):
-    global  ser
+    global ser
+    plate = None
+    balance = None
+
     try:
         ser = serial.Serial(arduino_port, baud, timeout=2)
         time.sleep(2)
@@ -22,7 +26,26 @@ def listen_to_arduino(arduino_port, baud=9600):
             line = ser.readline().decode('utf-8').strip()
             if line:
                 print("📨 Received:", line)
-                process_message(line)
+
+                # Extract Plate Number
+                if "Plate Number:" in line:
+                    plate = line.split("Plate Number:")[1].strip()
+
+                # Extract Balance
+                elif "Balance     :" in line:
+                    balance_str = line.split("Balance     :")[1].strip()
+                    try:
+                        balance = int(balance_str)
+                    except ValueError:
+                        print(f"⚠️ Invalid balance value: {balance_str}")
+                        balance = None
+
+                # Process when both values are captured
+                if plate and balance is not None:
+                    message = f"PLATE:{plate}|BALANCE:{balance}"
+                    process_message(message)
+                    plate = None  # Reset for next cycle
+                    balance = None
 
     except serial.SerialException as e:
         print("❌ Serial error:", e)
@@ -31,7 +54,6 @@ def listen_to_arduino(arduino_port, baud=9600):
     finally:
         if 'ser' in locals() and ser.is_open:
             ser.close()
-
 def process_message(message):
     if "PLATE:" in message and "BALANCE:" in message:
         try:
@@ -57,21 +79,22 @@ def lookup_entry_time(plate):
     with open(LOG_FILE, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            if row['Plate Number'] == plate and row['Payment Status'] == '0':
-                return datetime.fromisoformat(row['Timestamp'])
+            if row['Plate'] == plate and row['Payment Status'] == '0':
+                return datetime.fromisoformat(row['Entry Time'])
     return None
 
 def update_payment_status_in_log(plate):
     rows = []
     with open(LOG_FILE, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
+        fieldnames = reader.fieldnames
         for row in reader:
-            if row['Plate Number'] == plate and row['Payment Status'] == '0':
+            if row['Plate'] == plate and row['Payment Status'] == '0':
                 row['Payment Status'] = '1'
             rows.append(row)
 
     with open(LOG_FILE, "w", newline='') as csvfile:
-        fieldnames = ['Plate Number', 'Payment Status', 'Timestamp']
+        fieldnames = ['Plate', 'Payment Status', 'Timestamp']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
@@ -111,19 +134,19 @@ def compute_and_log_payment(plate, entry_time, balance):
         file_exists = os.path.isfile(TX_FILE)
 
         with open(TX_FILE, "a", newline='') as csvfile:
-            fieldnames = ['plate_number', 'entry_time', 'exit_time', 'duration_hr', 'amount', 'payment_status']
+            fieldnames = ['Plate', 'Entry Time', 'Exit Time', 'duration_hr','Payment Status','Amount Paid']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
             if not file_exists:
                 writer.writeheader()
 
             writer.writerow({
-                'plate_number': plate,
-                'entry_time': entry_time.isoformat(),
-                'exit_time': now.isoformat(),
-                'duration_hr': duration_hours,
-                'amount': amount_due,
-                'payment_status': 1
+                'Plate': plate,
+                'Entry Time': entry_time.isoformat(),
+                'Exit Time': now.isoformat(),
+                'Payment Status': 1,
+                'duration_hr':duration_hours,
+                'Amount Paid': amount_due
             })
     else:
         print(f"❌ Payment failed or no DONE signal: {response}")
